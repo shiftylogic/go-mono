@@ -76,6 +76,12 @@ func WithNoCache() RouterOptionFunc {
 	}
 }
 
+func WithNoIFrame() RouterOptionFunc {
+	return func(r Router) {
+		r.Use(NoIFrame)
+	}
+}
+
 func WithProfiler() RouterOptionFunc {
 	return func(r Router) {
 		r.Mount("/debug", middleware.Profiler())

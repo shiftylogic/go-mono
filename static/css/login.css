@@ -1,0 +1,10 @@
+.qr-frame {
+    display: flex;
+    flex-flow: column nowrap;
+    align-items: center;
+}
+
+.qrcode {
+    width: 150px;
+    height: 150px;
+}
