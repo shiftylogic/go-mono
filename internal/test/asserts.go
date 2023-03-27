@@ -23,6 +23,7 @@
 package test
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -43,7 +44,7 @@ func AnyError(t *testing.T, err error, msg string) {
 func SpecificError(t *testing.T, err error, expected error, msg string) {
 	t.Helper()
 	if err != expected {
-		t.Fatalf("Expected error (expected: <%v>, got: <%v>) - %s", expected, err, msg)
+		t.Fatalf("Expected error (expected: %v, got: %v) - %s", expected, err, msg)
 	}
 }
 
@@ -51,5 +52,40 @@ func Require(t *testing.T, condition bool, msg string) {
 	t.Helper()
 	if !condition {
 		t.Fatalf(msg)
+	}
+}
+
+func Expect(t *testing.T, expected, actual any, msg string) {
+	t.Helper()
+	if !reflect.DeepEqual(expected, actual) {
+		t.Fatalf("Value '%v' does not match expected '%v': %s", actual, expected, msg)
+	}
+}
+
+func ExpectBits(t *testing.T, expected, actual []uint8, count uint, msg string) {
+	t.Helper()
+
+	if len(actual) < len(expected) {
+		t.Fatal("Actual slice too short")
+	}
+
+	n := count / 8
+	var i uint = 0
+	for ; i < n; i++ {
+		if actual[i] != expected[i] {
+			t.Fatalf("Actual byte #%d (%x) does not match expected value (%x): %s", i+1, actual[i], expected[i], msg)
+		}
+	}
+
+	// If this was a multiple of 8 bits, the last check is not needed
+	if count%8 == 0 {
+		return
+	}
+
+	// The last byte needs to be masked for appropriate bit count
+	var mask uint8 = 0xFF << (8 - (count % 8))
+	am := actual[n] & mask
+	if am != expected[n] {
+		t.Fatalf("Last byte (%x) does not match expected value (%x): %s", am, expected[n], msg)
 	}
 }
