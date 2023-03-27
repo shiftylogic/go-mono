@@ -23,6 +23,11 @@
 package web
 
 import (
+	"io/fs"
+	"net/http"
+	"path"
+	"strings"
+
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -86,5 +91,19 @@ func WithPanicRecovery() RouterOptionFunc {
 func WithLogging() RouterOptionFunc {
 	return func(r Router) {
 		r.Use(middleware.Logger)
+	}
+}
+
+func WithStaticFiles(endpoint string, root fs.FS) RouterOptionFunc {
+	if strings.ContainsAny(endpoint, "{}*") {
+		panic("endpoint path cannot have any URL parameters")
+	}
+
+	return func(r Router) {
+		routePath := path.Join(endpoint, "*")
+		handler := http.StripPrefix(endpoint, http.FileServer(http.FS(root)))
+		r.Get(routePath, func(w http.ResponseWriter, r *http.Request) {
+			handler.ServeHTTP(w, r)
+		})
 	}
 }
