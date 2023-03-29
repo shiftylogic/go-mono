@@ -23,6 +23,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -31,7 +32,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"shiftylogic.dev/site-plat/internal/helpers"
@@ -41,57 +41,82 @@ import (
 )
 
 const (
-	kCorsOriginsEnvKey = "CORS_ORIGINS"
+	kConfigFileEnvKey = "SL_MONO_CONFIG"
 )
 
-var (
-	secret string
-)
-
-func init() {
-	s, err := helpers.GenerateStringSecure(64, helpers.AlphaNumeric)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to generate secure string - %v", err))
-	}
-
-	secret = s
+type ServicesConfig struct {
+	Auth auth.Config `json:"auth" yaml:"Auth"`
 }
 
-func main() {
-	origins := strings.Split(helpers.ReadEnvWithDefault(kCorsOriginsEnvKey, "*"), ";")
-	log.Printf("Launching with CORS origins: %v", origins)
+type MonoConfig struct {
+	Base     services.Config `json:"root" yaml:"Root"`
+	Services ServicesConfig  `json:"services" yaml:"Services"`
+}
 
-	router := web.NewRouter(
-		web.WithCors(web.CorsOptions{
-			AllowedOrigins: origins,
-			AllowedMethods: []string{"GET", "PUT", "POST", "DELETE", "HEAD", "OPTION"},
-			AllowedHeaders: []string{
-				"User-Agent", "Content-Type", "Accept", "Accept-Encoding", "Accept-Language",
-				"Cache-Control", "Connection", "DNT", "Host", "Origin", "Pragma", "Referer",
-			},
-			ExposedHeaders:   []string{"Link"},
-			AllowCredentials: true,
-			MaxAge:           300, // Maximum value not ignored by any of major browsers
-		}),
+func loadConfig() MonoConfig {
+	config := MonoConfig{
+		services.DefaultConfig(),
+		ServicesConfig{
+			Auth: auth.DefaultConfig(),
+		},
+	}
+
+	if configFile := helpers.ReadEnvWithDefault(kConfigFileEnvKey, ""); configFile != "" {
+		services.LoadConfig(configFile, &config)
+	}
+
+	return config
+}
+
+func loadServices(ctx context.Context) services.Services {
+	return &services.ServicesImpl{
+		KVStore: services.NewMemoryStore(ctx),
+	}
+}
+
+func selectMiddleware(config services.Config) []web.RouterOptionFunc {
+	options := []web.RouterOptionFunc{
 		web.WithLogging(),
 		web.WithPanicRecovery(),
-		web.WithNoCache(),
 		web.WithNoIFrame(),
+		web.WithNoCache(), // TODO: Remove this at some point later
+	}
 
-		// Must be after middleware
-		web.WithProfiler(),
+	if config.CORS.Enabled() {
+		options = append(options, web.WithCors(config.CORS.Options()))
+	}
 
-		// Authentication services
-		auth.WithOAuth2(auth.Config{
-			Endpoint:     "/auth",
-			Secret:       secret,
-			EnableQRScan: true,
-			QRScanPrefix: "https://local.vroov.com:9443/do-a-thing",
-		}),
+	// This needs to be the last thing added (as middleware) before we start
+	// adding other handlers
+	if config.Profiler {
+		options = append(options, web.WithProfiler())
+	}
 
-		// Serve up all the "common" files
+	return options
+}
+
+func loadRoutes(config ServicesConfig) []web.RouterOptionFunc {
+	return []web.RouterOptionFunc{
+		auth.WithOAuth2(config.Auth),
+	}
+}
+
+func run() {
+	ctx, shutdown := context.WithCancel(context.Background())
+	defer shutdown()
+
+	svcs := loadServices(ctx)
+	config := loadConfig()
+
+	options := selectMiddleware(config.Base)
+	options = append(options, services.WithServices(svcs))
+	options = append(options, loadRoutes(config.Services)...)
+	options = append(
+		options,
 		web.WithStaticFiles("/", os.DirFS("./static")),
 	)
+
+	router := web.NewRouter(options...)
 
 	router.Get("/do-a-thing", func(w http.ResponseWriter, r *http.Request) {
 		ts := r.URL.Query().Get("ts")
@@ -105,7 +130,27 @@ func main() {
 			return
 		}
 
-		hm := hmac.New(sha256.New, []byte(secret))
+		if time.Now().Sub(time.Unix(tsSecs, 0)) > config.Services.Auth.TokenTTL {
+			log.Printf("[Error] Token expired")
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		svcs := services.ServicesFromContext(r.Context())
+		if svcs == nil {
+			log.Print("[Error] Failed to acquire active services")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		key, err := svcs.Cache().Get("qrscan", token)
+		if err != nil {
+			log.Printf("[Error] Failed to fetch key associated with token (%s) - %v", token, err)
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		hm := hmac.New(sha256.New, []byte(key.(string)))
 		hm.Write([]byte(ts))
 		hm.Write([]byte(token))
 		computedH := hm.Sum(nil)
@@ -125,5 +170,11 @@ func main() {
 		fmt.Fprintf(w, "  => Verified? %v\n", hmac.Equal(computedH, expectedH))
 	})
 
-	services.Start(router)
+	services.Start(config.Base, router)
+}
+
+func main() {
+	run()
+	time.Sleep(250 * time.Millisecond)
+	log.Print("Bye for realz!")
 }

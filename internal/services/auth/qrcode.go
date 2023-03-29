@@ -33,28 +33,52 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 	"shiftylogic.dev/site-plat/internal/helpers"
+	"shiftylogic.dev/site-plat/internal/services"
 )
 
 const (
-	kTokenSize = 16
+	kQRTokenSize              = 16
+	kQRSecretSize             = 32
+	kQRErrorCorrectionQuality = qrcode.Low
 )
 
-func makeQRGenerator(prefix, secret string) http.HandlerFunc {
+func (qr QRScanConfig) Generator() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
-		token, err := helpers.GenerateStringSecure(kTokenSize, helpers.AlphaNumeric)
+
+		token, err := helpers.GenerateStringSecure(kQRTokenSize, helpers.AlphaNumeric)
 		if err != nil {
-			log.Printf("[Error] Failed to generate secure random token - %v", err)
+			log.Printf("[Error] Failed to generate secure random QR token - %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 
-		hm := hmac.New(sha256.New, []byte(secret))
+		key, err := helpers.GenerateStringSecure(kQRSecretSize, helpers.AlphaNumeric)
+		if err != nil {
+			log.Printf("[Error] Failed to generate secure random QR secret - %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		svcs := services.ServicesFromContext(r.Context())
+		if svcs == nil {
+			log.Print("[Error] Failed to acquire active services")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		if err := svcs.Cache().Set("qrscan", token, key, qr.TTL); err != nil {
+			log.Printf("[Error] Failed to write QR metadata to store - %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		hm := hmac.New(sha256.New, []byte(key))
 		hm.Write([]byte(ts))
 		hm.Write([]byte(token))
 		hash := hm.Sum(nil)
 
-		code, err := qrcode.New(fmt.Sprintf("%s?ts=%s&v=%s&h=%x", prefix, ts, token, hash), qrcode.Low)
+		code, err := qrcode.New(fmt.Sprintf("%s?ts=%s&v=%s&h=%x", qr.Prefix, ts, token, hash), kQRErrorCorrectionQuality)
 		if err != nil {
 			log.Printf("[Error] Failed to generate QR Code - %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

@@ -24,41 +24,35 @@ package auth
 
 import (
 	"time"
-
-	"shiftylogic.dev/site-plat/internal/helpers"
 )
 
 const (
-	kDefaultTokenTTL = 15 * time.Minute
-	kMinimumTokenTTL = 5 * time.Minute
+	kDefaultQRCodeTTL = 2 * time.Minute
+	kDefaultTokenTTL  = 15 * time.Minute
 )
 
 type Config struct {
-	Endpoint string
-
-	// OAuth2.0 Configuration
-	Secret   string
-	TokenTTL time.Duration
-
-	// Features
-	EnableQRScan bool
-	QRScanPrefix string
+	Path     string        `json:"path" yaml:"Path"`
+	Secret   string        `json:"secret" yaml:"Secret"`
+	TokenTTL time.Duration `json:"tokenTTL" yaml:"TokenTTL"`
+	QRScan   QRScanConfig  `json:"qrscan" yaml:"QRScan"`
 }
 
-func (cfg *Config) validate() error {
-	// If a secret wasn't set, generate one
-	if cfg.Secret == "" {
-		secret, err := helpers.GenerateStringSecure(32, helpers.AlphaNumeric)
-		if err != nil {
-			return err
-		}
-		cfg.Secret = secret
-	}
+type QRScanConfig struct {
+	Enabled bool          `json:"enabled" yaml:"Enabled"`
+	Prefix  string        `json:"prefix" yaml:"Prefix"`
+	TTL     time.Duration `json:"ttl" yaml:"TTL"`
+}
 
-	// Make sure we have a TTL that makes sense
-	if cfg.TokenTTL < kMinimumTokenTTL {
-		cfg.TokenTTL = kMinimumTokenTTL
+func DefaultConfig() Config {
+	return Config{
+		Path:     "",
+		Secret:   "",
+		TokenTTL: kDefaultTokenTTL,
+		QRScan: QRScanConfig{
+			Enabled: false,
+			Prefix:  "",
+			TTL:     kDefaultQRCodeTTL,
+		},
 	}
-
-	return nil
 }

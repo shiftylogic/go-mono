@@ -20,23 +20,54 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package auth
+package services
 
 import (
-	"log"
+	"context"
+	"time"
 
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
-func WithOAuth2(config Config) web.RouterOptionFunc {
-	return func(root web.Router) {
-		r := web.NewRouter()
+const (
+	ServicesContextKey = "sl.services"
+)
 
-		if config.QRScan.Enabled {
-			r.Get("/qrcode", config.QRScan.Generator())
-		}
+type KVStore interface {
+	Get(ns, key string) (any, error)
 
-		log.Printf("  -> Auth mount: %s", config.Path)
-		root.Mount(config.Path, r)
+	CheckAndSet(ns, key string, value any, ttl time.Duration) error
+	Refresh(ns, key string, ttl time.Duration) error
+	Set(ns, key string, value any, ttl time.Duration) error
+
+	Remove(ns, key string)
+}
+
+type Services interface {
+	Cache() KVStore
+}
+
+func ServicesFromContext(ctx context.Context) Services {
+	return ctx.Value(ServicesContextKey).(Services)
+}
+
+func WithServices(svcs Services) web.RouterOptionFunc {
+	return func(r web.Router) {
+		r.Use(web.InjectContext(ServicesContextKey, svcs))
 	}
+}
+
+/**
+ *
+ * A simple implementation of the Services interface that stores the various
+ * service instances directly and just provides references as needed.
+ *
+ **/
+
+type ServicesImpl struct {
+	KVStore KVStore
+}
+
+func (svcs ServicesImpl) Cache() KVStore {
+	return svcs.KVStore
 }

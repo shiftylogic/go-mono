@@ -23,42 +23,24 @@
 package services
 
 import (
+	"fmt"
 	"log"
-	"path"
 
-	"shiftylogic.dev/site-plat/internal/helpers"
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
-const (
-	kDefaultAddress   = ":9443"
-	kAddrEnvKey       = "SERVER_ADDRESS"
-	kCertRootEnvKey   = "TLS_CERT_ROOT"
-	kCertDomainEnvKey = "TLS_CERT_DOMAIN"
-)
-
-func Start(router web.Router) {
-	serverAddr := helpers.ReadEnvWithDefault(kAddrEnvKey, kDefaultAddress)
-	tlsCert, tlsKey := loadTLS()
-
-	log.Printf("Launching server on port %s\n", serverAddr)
-
-	web.StartWithOptions(
-		web.WithAddress(serverAddr),
-		web.WithTLS(tlsCert, tlsKey),
+func Start(config Config, router web.Router) {
+	addr := fmt.Sprintf("%s:%d", config.Address, config.Port)
+	options := []web.ServerOptionFunc{
+		web.WithAddress(addr),
 		web.WithHandler(router),
-	)
+	}
 
+	if config.TLS.Enabled() {
+		options = append(options, web.WithTLS(config.TLS.Certificate, config.TLS.Key))
+	}
+
+	log.Printf("Launching server (%s)\n", addr)
+	web.StartWithOptions(options...)
 	log.Print("Server stopped.")
-}
-
-func loadTLS() (string, string) {
-	rootPath := helpers.ReadEnv(kCertRootEnvKey)
-	domain := helpers.ReadEnv(kCertDomainEnvKey)
-
-	certDir := path.Join(rootPath, "config", "live", domain)
-	tlsCert := path.Join(certDir, "fullchain.pem")
-	tlsKey := path.Join(certDir, "privkey.pem")
-
-	return tlsCert, tlsKey
 }

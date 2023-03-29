@@ -22,7 +22,10 @@
 
 package web
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 func NoIFrame(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,4 +33,13 @@ func NoIFrame(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy", "frame-ancestors: 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+func InjectContext(key string, value any) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), key, value))
+			next.ServeHTTP(w, r)
+		})
+	}
 }
