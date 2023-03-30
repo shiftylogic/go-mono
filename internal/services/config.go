@@ -24,6 +24,7 @@ package services
 
 import (
 	"encoding/json"
+	"io/fs"
 	"log"
 	"os"
 	"path"
@@ -33,12 +34,13 @@ import (
 )
 
 type Config struct {
-	Address  string     `json:"address" yaml:"Address"`
-	Port     int        `json:"port" yaml:"Port"`
-	Logging  bool       `json:"logging" yaml:"Logging"`
-	Profiler bool       `json:"profiler" yaml:"Profiler"`
-	CORS     CORSConfig `json:"cors" yaml:"CORS"`
-	TLS      TLSConfig  `json:"tls" yaml:"TLS"`
+	Address  string         `json:"address" yaml:"Address"`
+	Port     int            `json:"port" yaml:"Port"`
+	Logging  bool           `json:"logging" yaml:"Logging"`
+	Profiler bool           `json:"profiler" yaml:"Profiler"`
+	CORS     CORSConfig     `json:"cors" yaml:"CORS"`
+	TLS      TLSConfig      `json:"tls" yaml:"TLS"`
+	Statics  []StaticConfig `json:"statics" yaml:"Statics"`
 }
 
 type CORSConfig struct {
@@ -48,6 +50,11 @@ type CORSConfig struct {
 	ExposedHeaders   []string `json:"exposedHeaders" yaml:"ExposedHeaders"`
 	AllowCredentials bool     `json:"allowedCredentials" yaml:"AllowedCredentials"`
 	MaxAge           int      `json:"maxAge" yaml:"MaxAge"`
+}
+
+type StaticConfig struct {
+	Endpoint  string `json:"endpoint" yaml:"Endpoint"`
+	LocalPath string `json:"localPath" yaml:"LocalPath"`
 }
 
 type TLSConfig struct {
@@ -116,6 +123,16 @@ func (cfg CORSConfig) Options() web.CorsOptions {
 		AllowCredentials: cfg.AllowCredentials,
 		MaxAge:           cfg.MaxAge,
 	}
+}
+
+/**
+ *
+ * Helper methods on CORSConfig struct
+ *
+ **/
+
+func (cfg StaticConfig) FS() fs.FS {
+	return os.DirFS(cfg.LocalPath)
 }
 
 /**

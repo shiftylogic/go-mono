@@ -30,7 +30,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -74,33 +73,6 @@ func loadServices(ctx context.Context) services.Services {
 	}
 }
 
-func selectMiddleware(config services.Config) []web.RouterOptionFunc {
-	options := []web.RouterOptionFunc{
-		web.WithLogging(),
-		web.WithPanicRecovery(),
-		web.WithNoIFrame(),
-		web.WithNoCache(), // TODO: Remove this at some point later
-	}
-
-	if config.CORS.Enabled() {
-		options = append(options, web.WithCors(config.CORS.Options()))
-	}
-
-	// This needs to be the last thing added (as middleware) before we start
-	// adding other handlers
-	if config.Profiler {
-		options = append(options, web.WithProfiler())
-	}
-
-	return options
-}
-
-func loadRoutes(config ServicesConfig) []web.RouterOptionFunc {
-	return []web.RouterOptionFunc{
-		auth.WithOAuth2(config.Auth),
-	}
-}
-
 func run() {
 	ctx, shutdown := context.WithCancel(context.Background())
 	defer shutdown()
@@ -110,11 +82,8 @@ func run() {
 
 	options := selectMiddleware(config.Base)
 	options = append(options, services.WithServices(svcs))
-	options = append(options, loadRoutes(config.Services)...)
-	options = append(
-		options,
-		web.WithStaticFiles("/", os.DirFS("./static")),
-	)
+	options = append(options, getRoutes(config.Services)...)
+	options = append(options, services.WithStaticRoutes(config.Base.Statics)...)
 
 	router := web.NewRouter(options...)
 

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package auth
+package services
 
 import (
 	"log"
@@ -28,16 +28,16 @@ import (
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
-func WithOAuth2(config Config) web.RouterOptionFunc {
-	log.Printf("+++ Auth: '%s'", config.Path)
+func WithStaticRoutes(configs []StaticConfig) []web.RouterOptionFunc {
+	var options []web.RouterOptionFunc
 
-	return func(root web.Router) {
-		r := web.NewRouter()
-
-		if config.QRScan.Enabled {
-			r.Get("/qrcode", config.QRScan.Generator())
-		}
-
-		root.Mount(config.Path, r)
+	for _, s := range configs {
+		options = append(
+			options,
+			web.WithStaticFiles(s.Endpoint, s.FS()),
+		)
+		log.Printf("+++ Static: '%s' => '%s'", s.Endpoint, s.LocalPath)
 	}
+
+	return options
 }

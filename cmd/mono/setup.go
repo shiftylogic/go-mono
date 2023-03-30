@@ -20,24 +20,37 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package auth
+package main
 
 import (
-	"log"
-
+	"shiftylogic.dev/site-plat/internal/services"
+	"shiftylogic.dev/site-plat/internal/services/auth"
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
-func WithOAuth2(config Config) web.RouterOptionFunc {
-	log.Printf("+++ Auth: '%s'", config.Path)
+func selectMiddleware(config services.Config) []web.RouterOptionFunc {
+	options := []web.RouterOptionFunc{
+		web.WithLogging(),
+		web.WithPanicRecovery(),
+		web.WithNoIFrame(),
+		web.WithNoCache(), // TODO: Remove this at some point later
+	}
 
-	return func(root web.Router) {
-		r := web.NewRouter()
+	if config.CORS.Enabled() {
+		options = append(options, web.WithCors(config.CORS.Options()))
+	}
 
-		if config.QRScan.Enabled {
-			r.Get("/qrcode", config.QRScan.Generator())
-		}
+	// This needs to be the last thing added (as middleware) before we start
+	// adding other handlers
+	if config.Profiler {
+		options = append(options, web.WithProfiler())
+	}
 
-		root.Mount(config.Path, r)
+	return options
+}
+
+func getRoutes(config ServicesConfig) []web.RouterOptionFunc {
+	return []web.RouterOptionFunc{
+		auth.WithOAuth2(config.Auth),
 	}
 }
