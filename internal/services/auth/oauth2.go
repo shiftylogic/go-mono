@@ -23,8 +23,16 @@
 package auth
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"log"
+	"net/http"
+	"strconv"
+	"time"
 
+	"shiftylogic.dev/site-plat/internal/services"
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
@@ -36,8 +44,67 @@ func WithOAuth2(config Config) web.RouterOptionFunc {
 
 		if config.QRScan.Enabled {
 			r.Get("/qrcode", config.QRScan.Generator())
+			r.Get("/do-a-thing", DoThing(config.QRScan.TTL))
 		}
 
 		root.Mount(config.Path, r)
+	}
+}
+
+/**
+ * TODO: Remove
+ * This is just for playing with the QR Code generator
+ **/
+func DoThing(ttl time.Duration) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ts := r.URL.Query().Get("ts")
+		token := r.URL.Query().Get("v")
+		h := r.URL.Query().Get("h")
+
+		tsSecs, err := strconv.ParseInt(ts, 10, 64)
+		if err != nil {
+			log.Printf("[Error] Timestamp parse failure - %v", err)
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		if time.Now().Sub(time.Unix(tsSecs, 0)) > ttl {
+			log.Printf("[Error] Token expired")
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		svcs := services.ServicesFromContext(r.Context())
+		if svcs == nil {
+			log.Print("[Error] Failed to acquire active services")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		key, err := svcs.Cache().Get("qrscan", token)
+		if err != nil {
+			log.Printf("[Error] Failed to fetch key associated with token (%s) - %v", token, err)
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		hm := hmac.New(sha256.New, []byte(key.(string)))
+		hm.Write([]byte(ts))
+		hm.Write([]byte(token))
+		computedH := hm.Sum(nil)
+
+		expectedH, err := hex.DecodeString(h)
+		if err != nil {
+			log.Printf("[Error] Timestamp parse failure - %v", err)
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "QR Code Scanned:\n")
+		fmt.Fprintf(w, "  => Timestamp: %v (%s)\n", time.Unix(tsSecs, 0), ts)
+		fmt.Fprintf(w, "  => Token: %s\n", token)
+		fmt.Fprintf(w, "  => Hash: %s\n", h)
+		fmt.Fprintf(w, "  => Verified? %v\n", hmac.Equal(computedH, expectedH))
 	}
 }

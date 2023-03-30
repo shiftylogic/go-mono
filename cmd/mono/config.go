@@ -23,42 +23,36 @@
 package main
 
 import (
-	"context"
-	"log"
-	"time"
-
+	"shiftylogic.dev/site-plat/internal/helpers"
 	"shiftylogic.dev/site-plat/internal/services"
-	"shiftylogic.dev/site-plat/internal/web"
+	"shiftylogic.dev/site-plat/internal/services/auth"
 )
 
-func run() {
+const (
+	kConfigFileEnvKey = "SL_MONO_CONFIG"
+)
+
+type ServicesConfig struct {
+	Auth auth.Config `json:"auth" yaml:"Auth"`
 }
 
-func main() {
-	ctx, shutdown := context.WithCancel(context.Background())
+type MonoConfig struct {
+	Base     services.Config `json:"root" yaml:"Root"`
+	Services ServicesConfig  `json:"services" yaml:"Services"`
+}
 
-	go func() {
-		defer shutdown()
+func loadConfig() MonoConfig {
 
-		svcs := loadServices(ctx)
-		config := loadConfig()
+	config := MonoConfig{
+		services.DefaultConfig(),
+		ServicesConfig{
+			Auth: auth.DefaultConfig(),
+		},
+	}
 
-		options := selectMiddleware(config.Base)
-		options = append(options, services.WithServices(svcs))
-		options = append(options, getRoutes(config.Services)...)
-		options = append(options, services.WithStaticRoutes(config.Base.Statics)...)
+	if configFile := helpers.ReadEnvWithDefault(kConfigFileEnvKey, ""); configFile != "" {
+		services.LoadConfig(configFile, &config)
+	}
 
-		router := web.NewRouter(options...)
-
-		services.Start(config.Base, router)
-	}()
-
-	// Wait for the services to be stopped
-	<-ctx.Done()
-
-	// Allow a bit more time for the background goroutines to shutdown.
-	// If they are paying attention to the Context passed to them, this
-	// should be pretty quick.
-	time.Sleep(time.Second)
-	log.Print("Bye for realz!")
+	return config
 }

@@ -23,10 +23,18 @@
 package main
 
 import (
+	"context"
+
 	"shiftylogic.dev/site-plat/internal/services"
 	"shiftylogic.dev/site-plat/internal/services/auth"
 	"shiftylogic.dev/site-plat/internal/web"
 )
+
+func loadServices(ctx context.Context) services.Services {
+	return &services.ServicesImpl{
+		KVStore: services.NewMemoryStore(ctx),
+	}
+}
 
 func selectMiddleware(config services.Config) []web.RouterOptionFunc {
 	options := []web.RouterOptionFunc{
