@@ -43,8 +43,14 @@ type KVStore interface {
 	Remove(ns, key string)
 }
 
+type Authorizer interface {
+	ValidateClient(cid, redir string) bool
+	ValidateUser(user, pwd, scope string) (string, error)
+}
+
 type Services interface {
 	Cache() KVStore
+	Authorizer() Authorizer
 }
 
 func ServicesFromContext(ctx context.Context) Services {
@@ -66,8 +72,13 @@ func WithServices(svcs Services) web.RouterOptionFunc {
 
 type ServicesImpl struct {
 	KVStore KVStore
+	Authy   Authorizer
 }
 
 func (svcs ServicesImpl) Cache() KVStore {
 	return svcs.KVStore
+}
+
+func (svcs ServicesImpl) Authorizer() Authorizer {
+	return svcs.Authy
 }

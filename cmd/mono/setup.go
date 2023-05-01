@@ -33,6 +33,7 @@ import (
 func loadServices(ctx context.Context) services.Services {
 	return &services.ServicesImpl{
 		KVStore: services.NewMemoryStore(ctx),
+		Authy:   &fixedAuthorizer{},
 	}
 }
 

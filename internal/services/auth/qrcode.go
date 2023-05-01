@@ -37,9 +37,14 @@ import (
 )
 
 const (
+	kQRCacheKey               = "qrscan"
 	kQRTokenSize              = 16
 	kQRSecretSize             = 32
 	kQRErrorCorrectionQuality = qrcode.Low
+
+	kQRTimestampName = "ts"
+	kQRTokenName     = "tk"
+	kQRHashName      = "h"
 )
 
 func QRGenerator(qr QRScanConfig) func(http.ResponseWriter, *http.Request) {
@@ -67,7 +72,7 @@ func QRGenerator(qr QRScanConfig) func(http.ResponseWriter, *http.Request) {
 			return
 		}
 
-		if err := svcs.Cache().Set("qrscan", token, key, qr.TTL); err != nil {
+		if err := svcs.Cache().Set(kQRCacheKey, token, key, qr.TTL); err != nil {
 			log.Printf("[Error] Failed to write QR metadata to store - %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
@@ -78,7 +83,19 @@ func QRGenerator(qr QRScanConfig) func(http.ResponseWriter, *http.Request) {
 		hm.Write([]byte(token))
 		hash := hm.Sum(nil)
 
-		code, err := qrcode.New(fmt.Sprintf("%s?ts=%s&v=%s&h=%x", qr.Prefix, ts, token, hash), kQRErrorCorrectionQuality)
+		code, err := qrcode.New(
+			fmt.Sprintf(
+				"%s?%s=%s&%s=%s&%s=%x",
+				qr.Prefix,
+				kQRTimestampName,
+				ts,
+				kQRTokenName,
+				token,
+				kQRHashName,
+				hash,
+			),
+			kQRErrorCorrectionQuality,
+		)
 		if err != nil {
 			log.Printf("[Error] Failed to generate QR Code - %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

@@ -20,51 +20,49 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package auth
+package main
 
 import (
-	"time"
+	"crypto/subtle"
+	"errors"
+	"log"
+	"net/url"
 )
 
 const (
-	kDefaultQRCodeTTL  = 2 * time.Minute
-	kDefaultCodeTTL    = 1 * time.Minute
-	kDefaultRequestTTL = 5 * time.Minute
-	kDefaultTokenTTL   = 30 * time.Minute
+	kClientID    = "24C4853F-9398-41BD-B155-3333F181066B"
+	kRedirectURI = "https://local.vroov.com:9443/auth-cb"
+
+	kUser = "dude@intfoo.com"
+	kPwd  = "1234test"
 )
 
-type Config struct {
-	Path      string `json:"path" yaml:"Path"`
-	Secret    string `json:"secret" yaml:"Secret"`
-	Templates string `json:"templates" yaml:"Templates"`
+var (
+	kBadUserPasswordError = errors.New("invalid user or password")
+)
 
-	CodeTTL    time.Duration `json:"codeTTL" yaml:"CodeTTL"`
-	RequestTTL time.Duration `json:"requestTTL" yaml:"RequestTTL"`
-	TokenTTL   time.Duration `json:"tokenTTL" yaml:"tokenTTL"`
+type fixedAuthorizer struct{}
 
-	QRScan QRScanConfig `json:"qrscan" yaml:"QRScan"`
-}
-
-type QRScanConfig struct {
-	Enabled bool          `json:"enabled" yaml:"Enabled"`
-	Prefix  string        `json:"prefix" yaml:"Prefix"`
-	TTL     time.Duration `json:"ttl" yaml:"TTL"`
-}
-
-func DefaultConfig() Config {
-	return Config{
-		Path:      "",
-		Secret:    "",
-		Templates: "",
-
-		CodeTTL:    kDefaultCodeTTL,
-		RequestTTL: kDefaultRequestTTL,
-		TokenTTL:   kDefaultTokenTTL,
-
-		QRScan: QRScanConfig{
-			Enabled: false,
-			Prefix:  "",
-			TTL:     kDefaultQRCodeTTL,
-		},
+func (v *fixedAuthorizer) ValidateClient(cid, redir string) bool {
+	redir, err := url.QueryUnescape(redir)
+	if err != nil {
+		log.Printf("Failed to unescape redirect URI - %v", err)
+		return false
 	}
+
+	res := subtle.ConstantTimeCompare([]byte(kClientID), []byte(cid))
+	res += subtle.ConstantTimeCompare([]byte(kRedirectURI), []byte(redir))
+
+	return res == 2
+}
+
+func (v *fixedAuthorizer) ValidateUser(user, pwd, scope string) (string, error) {
+	res := subtle.ConstantTimeCompare([]byte(kUser), []byte(user))
+	res += subtle.ConstantTimeCompare([]byte(kPwd), []byte(pwd))
+
+	if res != 2 {
+		return "", kBadUserPasswordError
+	}
+
+	return "1", nil
 }
