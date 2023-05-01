@@ -4,8 +4,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <link rel="stylesheet" href="//unpkg.com/@picocss/pico@1.*/css/pico.min.css">
-    <link rel="stylesheet" href="/css/common.css">
-    <link rel="stylesheet" href="/css/login.css">
+    <link rel="stylesheet" href="/s/css/common.css">
+    <link rel="stylesheet" href="/s/css/auth/login.css">
 
     <title>Sign In</title>
 </head>
@@ -20,8 +20,14 @@
           <input class="rounded centered" type="password" id="pwd" name="pwd" placeholder="Password" required>
           <button class="rounded" type="submit">Sign in</button>
         </form>
-        <div class="qr-frame">
-          <img class="qrcode" src="/auth/qrcode" />
+        <div class="v-frame">
+          {{if .QREnabled}}
+          <img class="qrcode" src="./qrcode" />
+          {{else}}
+          <div class="h-frame no-qrcode">
+            <p class="mb-0 centered no-qr-warning">QR Code Disabled</p>
+          </div>
+          {{end}}
           <div class="headings">
             <h4 class="mt-1 centered">Log in using QR Code</h3>
             <p class="centered">Scan this code from your mobile device to quickly login.</p>
@@ -33,6 +39,7 @@
   <div class="container centered">
     <sup><a href="https://shiftylogic.dev/">Designed by Shifty Logic!</a></sup>
   </div>
-  <script src="/js/common.js"></script>
+  <script src="/s/js/common.js"></script>
+  <script src="/s/js/auth/login.js"></script>
 </body>
 </html>

@@ -32,10 +32,11 @@ const (
 )
 
 type Config struct {
-	Path     string        `json:"path" yaml:"Path"`
-	Secret   string        `json:"secret" yaml:"Secret"`
-	TokenTTL time.Duration `json:"tokenTTL" yaml:"TokenTTL"`
-	QRScan   QRScanConfig  `json:"qrscan" yaml:"QRScan"`
+	Path      string        `json:"path" yaml:"Path"`
+	Secret    string        `json:"secret" yaml:"Secret"`
+	Templates string        `json:"templates" yaml:"Templates"`
+	TokenTTL  time.Duration `json:"tokenTTL" yaml:"TokenTTL"`
+	QRScan    QRScanConfig  `json:"qrscan" yaml:"QRScan"`
 }
 
 type QRScanConfig struct {
@@ -46,9 +47,10 @@ type QRScanConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Path:     "",
-		Secret:   "",
-		TokenTTL: kDefaultTokenTTL,
+		Path:      "",
+		Secret:    "",
+		Templates: "",
+		TokenTTL:  kDefaultTokenTTL,
 		QRScan: QRScanConfig{
 			Enabled: false,
 			Prefix:  "",

@@ -100,15 +100,17 @@ func WithLogging() RouterOptionFunc {
 	}
 }
 
-func WithStaticFiles(endpoint string, root fs.FS) RouterOptionFunc {
+func WithStaticFiles(endpoint, prefix string, root fs.FS) RouterOptionFunc {
 	if strings.ContainsAny(endpoint, "{}*") {
 		panic("endpoint path cannot have any URL parameters")
 	}
 
 	return func(r Router) {
-		routePath := path.Join(endpoint, "*")
-		handler := http.StripPrefix(endpoint, http.FileServer(http.FS(root)))
-		r.Get(routePath, func(w http.ResponseWriter, r *http.Request) {
+		route := path.Join(endpoint, "*")
+		stripped := path.Join(prefix, endpoint)
+		handler := http.StripPrefix(stripped, http.FileServer(http.FS(root)))
+
+		r.With(NoDirectoryListing).Get(route, func(w http.ResponseWriter, r *http.Request) {
 			handler.ServeHTTP(w, r)
 		})
 	}

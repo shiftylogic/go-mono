@@ -23,6 +23,9 @@
 package web
 
 import (
+	"log"
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -49,4 +52,15 @@ func NewRouter(options ...RouterOptionFunc) Router {
 	}
 
 	return r
+}
+
+func DumpRouter(r Router) {
+	walker := func(method, route string, h http.Handler, mws ...func(http.Handler) http.Handler) error {
+		log.Printf("[Route] %s %s\n", method, route)
+		return nil
+	}
+
+	if err := chi.Walk(r, walker); err != nil {
+		log.Fatalf("[ERROR] Failed to walk the router - %v", err)
+	}
 }

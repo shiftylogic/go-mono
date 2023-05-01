@@ -23,8 +23,6 @@
 package services
 
 import (
-	"log"
-
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
@@ -34,9 +32,8 @@ func WithStaticRoutes(configs []StaticConfig) []web.RouterOptionFunc {
 	for _, s := range configs {
 		options = append(
 			options,
-			web.WithStaticFiles(s.Endpoint, s.FS()),
+			web.WithStaticFiles(s.Endpoint, "/", s.FS()),
 		)
-		log.Printf("+++ Static: '%s' => '%s'", s.Endpoint, s.LocalPath)
 	}
 
 	return options

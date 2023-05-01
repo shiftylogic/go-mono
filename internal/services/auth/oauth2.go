@@ -27,8 +27,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -37,17 +39,34 @@ import (
 )
 
 func WithOAuth2(config Config) web.RouterOptionFunc {
-	log.Printf("+++ Auth: '%s'", config.Path)
+	templates := template.Must(template.ParseFS(os.DirFS(config.Templates), "*.html"))
 
 	return func(root web.Router) {
 		r := web.NewRouter()
+		r.With(web.NoIFrame).Get("/login", Authorize(templates, config.QRScan))
 
 		if config.QRScan.Enabled {
-			r.Get("/qrcode", config.QRScan.Generator())
+			r.Get("/qrcode", QRGenerator(config.QRScan))
 			r.Get("/do-a-thing", DoThing(config.QRScan.TTL))
 		}
 
 		root.Mount(config.Path, r)
+	}
+}
+
+type loginViewData struct {
+	QREnabled bool
+}
+
+func Authorize(templates *template.Template, config QRScanConfig) func(w http.ResponseWriter, r *http.Request) {
+	data := loginViewData{QREnabled: config.Enabled}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := templates.ExecuteTemplate(w, "login.html", data); err != nil {
+			log.Printf("[Error] Failed to execute 'login' template - %v", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 	}
 }
 

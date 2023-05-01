@@ -42,7 +42,7 @@ const (
 	kQRErrorCorrectionQuality = qrcode.Low
 )
 
-func (qr QRScanConfig) Generator() http.HandlerFunc {
+func QRGenerator(qr QRScanConfig) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 

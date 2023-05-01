@@ -40,6 +40,11 @@ func Start(config Config, router web.Router) {
 		options = append(options, web.WithTLS(config.TLS.Certificate, config.TLS.Key))
 	}
 
+	//
+	// Dump the entire active routing table before start-up
+	//
+	web.DumpRouter(router)
+
 	log.Printf("Launching server (%s)\n", addr)
 	web.StartWithOptions(options...)
 	log.Print("Server stopped.")
