@@ -27,10 +27,9 @@ import (
 )
 
 const (
-	kDefaultQRCodeTTL  = 2 * time.Minute
-	kDefaultCodeTTL    = 1 * time.Minute
-	kDefaultRequestTTL = 5 * time.Minute
-	kDefaultTokenTTL   = 30 * time.Minute
+	kDefaultQRCodeTTL = 2 * time.Minute
+	kDefaultCodeTTL   = 1 * time.Minute
+	kDefaultTokenTTL  = 30 * time.Minute
 )
 
 type Config struct {
@@ -38,9 +37,8 @@ type Config struct {
 	Secret    string `json:"secret" yaml:"Secret"`
 	Templates string `json:"templates" yaml:"Templates"`
 
-	CodeTTL    time.Duration `json:"codeTTL" yaml:"CodeTTL"`
-	RequestTTL time.Duration `json:"requestTTL" yaml:"RequestTTL"`
-	TokenTTL   time.Duration `json:"tokenTTL" yaml:"tokenTTL"`
+	CodeTTL  time.Duration `json:"codeTTL" yaml:"CodeTTL"`
+	TokenTTL time.Duration `json:"tokenTTL" yaml:"tokenTTL"`
 
 	QRScan QRScanConfig `json:"qrscan" yaml:"QRScan"`
 }
@@ -57,9 +55,8 @@ func DefaultConfig() Config {
 		Secret:    "",
 		Templates: "",
 
-		CodeTTL:    kDefaultCodeTTL,
-		RequestTTL: kDefaultRequestTTL,
-		TokenTTL:   kDefaultTokenTTL,
+		CodeTTL:  kDefaultCodeTTL,
+		TokenTTL: kDefaultTokenTTL,
 
 		QRScan: QRScanConfig{
 			Enabled: false,

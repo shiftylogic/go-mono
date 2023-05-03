@@ -33,23 +33,25 @@ const (
 	ServicesContextKey = "sl.services"
 )
 
-type KVStore interface {
-	Get(ns, key string) (any, error)
-
-	CheckAndSet(ns, key string, value any, ttl time.Duration) error
-	Refresh(ns, key string, ttl time.Duration) error
-	Set(ns, key string, value any, ttl time.Duration) error
-
-	Remove(ns, key string)
+type AuthCodeData struct {
+	UID             string
+	RedirectURI     string
+	Scope           string
+	State           string
+	Challenge       string
+	ChallengeMethod string
 }
 
 type Authorizer interface {
+	GenerateAuthorizationRequest(data AuthCodeData, ttl time.Duration) (string, error)
+	GenerateQRRequest(ttl time.Duration) (string, string, string, error)
+
+	Authenticate(user, pwd string) (string, error)
 	ValidateClient(cid, redir string) bool
-	ValidateUser(user, pwd, scope string) (string, error)
 }
 
 type Services interface {
-	Cache() KVStore
+	Ephemeral() DataStore
 	Authorizer() Authorizer
 }
 
@@ -70,15 +72,15 @@ func WithServices(svcs Services) web.RouterOptionFunc {
  *
  **/
 
-type ServicesImpl struct {
-	KVStore KVStore
-	Authy   Authorizer
+type ServicesContainer struct {
+	EphemeralStore DataStore
+	Authy          Authorizer
 }
 
-func (svcs ServicesImpl) Cache() KVStore {
-	return svcs.KVStore
+func (svcs ServicesContainer) Ephemeral() DataStore {
+	return svcs.EphemeralStore
 }
 
-func (svcs ServicesImpl) Authorizer() Authorizer {
+func (svcs ServicesContainer) Authorizer() Authorizer {
 	return svcs.Authy
 }

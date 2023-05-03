@@ -20,46 +20,35 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package helpers
 
 import (
-	"context"
-
-	"shiftylogic.dev/site-plat/internal/services"
-	"shiftylogic.dev/site-plat/internal/services/auth"
-	"shiftylogic.dev/site-plat/internal/web"
+	"encoding/base64"
+	"errors"
+	"net/http"
+	"strings"
 )
 
-func loadServices(ctx context.Context) services.Services {
-	kvs := services.NewMemoryStore(ctx)
+var (
+	kNoAuthorizationHeader = errors.New("no authorization header in request")
+	kNotBasicAuthorization = errors.New("authorization header is not basic")
+)
 
-	return &services.ServicesContainer{
-		EphemeralStore: &services.SimpleDataStore{
-			KVS: kvs,
-		},
-		Authy: &fixedAuthorizer{
-			store: kvs,
-		},
-	}
-}
-
-func selectMiddleware(config services.Config) []web.RouterOptionFunc {
-	options := []web.RouterOptionFunc{
-		web.WithLogging(),
-		web.WithPanicRecovery(),
-		web.WithNoIFrame(),
-		web.WithNoCache(), // TODO: Remove this at some point later
+func ParseHttpAuthBasic(r *http.Request) (string, string, error) {
+	val := r.Header.Get("Authorization")
+	if val == "" {
+		return "", "", kNoAuthorizationHeader
 	}
 
-	if config.CORS.Enabled() {
-		options = append(options, web.WithCors(config.CORS.Options()))
+	if strings.ToLower(val[:6]) != "basic " {
+		return "", "", kNotBasicAuthorization
 	}
 
-	return options
-}
-
-func getRoutes(config ServicesConfig) []web.RouterOptionFunc {
-	return []web.RouterOptionFunc{
-		auth.WithOAuth2(config.Auth),
+	dval, err := base64.StdEncoding.DecodeString(val[6:])
+	if err != nil {
+		return "", "", err
 	}
+
+	uid, pwd, _ := strings.Cut(string(dval), ":")
+	return uid, pwd, nil
 }

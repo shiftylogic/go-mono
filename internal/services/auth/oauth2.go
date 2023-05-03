@@ -23,37 +23,42 @@
 package auth
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"time"
 
-	"shiftylogic.dev/site-plat/internal/helpers"
 	"shiftylogic.dev/site-plat/internal/services"
 	"shiftylogic.dev/site-plat/internal/web"
 )
 
 const (
-	kAuthCodeSize        = 32
-	kAuthCodeCacheKey    = "auth_code"
-	kAuthRequestIDSize   = 20
-	kAuthRequestCacheKey = "auth_req"
+	kAuthorizeRoute = "/authorize"
+	kLoginRoute     = "/login"
+	kTokenRoute     = "/token"
+	kQRImageRoute   = "/qrcode"
 
+	// UI Templates
 	kLoginTemplate = "login.html"
 
-	kLoginRoute   = "/login"
-	kQRImageRoute = "/qrcode"
-
+	// Error strings for auth callback
 	kAccessDeniedError       = "access_denied"
 	kServerError             = "server_error"
+	kUnsupportedGrantType    = "unsupported_grant_type"
 	kUnsupportedResponseType = "unsupported_response_type"
 )
+
+type loginViewData struct {
+	ClientID        string
+	RedirectURI     string
+	Scope           string
+	State           string
+	Challenge       string
+	ChallengeMethod string
+
+	QREnabled bool
+}
 
 func WithOAuth2(config Config) web.RouterOptionFunc {
 	templates := template.Must(template.ParseFS(os.DirFS(config.Templates), "*.html"))
@@ -61,111 +66,35 @@ func WithOAuth2(config Config) web.RouterOptionFunc {
 	return func(root web.Router) {
 		r := web.NewRouter()
 
-		r.With(web.NoIFrame).Get("/authorize", Authorize(templates, config))
-		r.Post("/login", Login(config))
-		// r.Post("/token", )
+		r.With(web.NoIFrame).Get(kAuthorizeRoute, Authorize(templates, config))
+		r.Get(kLoginRoute, Login(config))
+		r.Post(kLoginRoute, Login(config))
+		r.Post(kTokenRoute, Token(config))
 
 		if config.QRScan.Enabled {
 			r.Get(kQRImageRoute, QRGenerator(config.QRScan))
-			r.Get("/do-a-thing", DoThing(config.QRScan.TTL))
+			// r.Get("/do-a-thing", DoThing(config.QRScan.TTL))
 		}
 
 		root.Mount(config.Path, r)
 	}
 }
 
-type loginRequestData struct {
-	ClientID    string
-	RedirectURI string
-	Scope       string
-	State       string
-}
-
-type loginViewData struct {
-	RequestID string
-	Scope     string
-	QREnabled bool
-}
-
-func Login(config Config) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rid := r.FormValue("rid")
-		user := r.FormValue("user")
-		pwd := r.FormValue("pwd")
-
-		svcs := services.ServicesFromContext(r.Context())
-		if svcs == nil {
-			log.Print("[Error] Failed to acquire active services")
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		rdataI, err := svcs.Cache().Get(kAuthRequestCacheKey, rid)
-		if err != nil {
-			log.Printf("[Error] Failed to fetch request data associated with request id (%s) - %v", rid, err)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
-
-		// We don't need / want the request data in the cache anymore
-		svcs.Cache().Remove(kAuthRequestCacheKey, rid)
-
-		rdata, ok := rdataI.(loginRequestData)
-		if !ok {
-			log.Print("[Error] Request data is invalid.")
-			redirectAuthError(w, r, kServerError, rdata)
-			return
-		}
-
-		uid, err := svcs.Authorizer().ValidateUser(user, pwd, rdata.Scope)
-		if err != nil {
-			log.Printf("[Error] Authentication failed - %v", err)
-			redirectAuthError(w, r, kAccessDeniedError, rdata)
-			return
-		}
-
-		code, err := helpers.GenerateStringSecure(kAuthCodeSize, helpers.AlphaNumeric)
-		if err != nil {
-			log.Printf("[Error] Failed to generate secure random QR secret - %v", err)
-			redirectAuthError(w, r, kServerError, rdata)
-			return
-		}
-
-		state := rdata.State
-		rdata.State = uid
-
-		if err := svcs.Cache().Set(kAuthCodeCacheKey, code, rdata, config.RequestTTL); err != nil {
-			log.Printf("[Error] Failed to write request data to cache = %v", err)
-			redirectAuthError(w, r, kServerError, rdata)
-			return
-		}
-
-		http.Redirect(
-			w,
-			r,
-			fmt.Sprintf("%s?code=%s&state=%s", rdata.RedirectURI, code, state),
-			http.StatusFound,
-		)
-	}
-}
-
 func Authorize(templates *template.Template, config Config) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rdata := loginRequestData{
-			ClientID:    r.URL.Query().Get("client_id"),
-			RedirectURI: r.URL.Query().Get("redirect_uri"),
-			Scope:       r.URL.Query().Get("scope"),
-			State:       r.URL.Query().Get("state"),
+		data := loginViewData{
+			ClientID:        r.URL.Query().Get("client_id"),
+			RedirectURI:     r.URL.Query().Get("redirect_uri"),
+			Scope:           r.URL.Query().Get("scope"),
+			State:           r.URL.Query().Get("state"),
+			Challenge:       r.URL.Query().Get("code_challenge"),
+			ChallengeMethod: r.URL.Query().Get("code_challenge_method"),
+			QREnabled:       config.QRScan.Enabled,
 		}
 
 		svcs := services.ServicesFromContext(r.Context())
-		if svcs == nil {
-			log.Print("[Error] Failed to acquire active services")
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
 
-		if !svcs.Authorizer().ValidateClient(rdata.ClientID, rdata.RedirectURI) {
+		if !svcs.Authorizer().ValidateClient(data.ClientID, data.RedirectURI) {
 			log.Print("[Error] Invalid client and / or redirect URL in authorize call.")
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -173,55 +102,87 @@ func Authorize(templates *template.Template, config Config) func(w http.Response
 
 		if rtype := r.URL.Query().Get("response_type"); rtype != "code" {
 			log.Print("[Error] Unsupported response_type in authorization request.")
-			redirectAuthError(w, r, kUnsupportedResponseType, rdata)
+			redirectAuthError(w, r, data.RedirectURI, kUnsupportedResponseType, data.State)
 			return
-		}
-
-		rid, err := helpers.GenerateStringSecure(kAuthRequestIDSize, helpers.AlphaNumeric)
-		if err != nil {
-			log.Printf("[Error] Failed to generate secure random QR secret - %v", err)
-			redirectAuthError(w, r, kServerError, rdata)
-			return
-		}
-
-		if err := svcs.Cache().Set(kAuthRequestCacheKey, rid, rdata, config.RequestTTL); err != nil {
-			log.Printf("[Error] Failed to write request data to cache = %v", err)
-			redirectAuthError(w, r, kServerError, rdata)
-			return
-		}
-
-		data := loginViewData{
-			RequestID: rid,
-			Scope:     rdata.Scope,
-			QREnabled: config.QRScan.Enabled,
 		}
 
 		if err := templates.ExecuteTemplate(w, kLoginTemplate, data); err != nil {
 			log.Printf("[Error] Failed to execute 'login' template - %v", err)
-			redirectAuthError(w, r, kServerError, rdata)
+			redirectAuthError(w, r, data.RedirectURI, kServerError, data.State)
 			return
 		}
 	}
 }
 
-func redirectAuthError(w http.ResponseWriter, r *http.Request, errS string, d loginRequestData) {
-	http.Redirect(
-		w,
-		r,
-		fmt.Sprintf("%s?error=%s&state=%s", d.RedirectURI, errS, d.State),
-		http.StatusFound,
-	)
+func Login(config Config) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		svcs := services.ServicesFromContext(r.Context())
+		cid := r.FormValue("cid")
+		data := services.AuthCodeData{
+			UID:             "",
+			RedirectURI:     r.FormValue("redir"),
+			Scope:           r.FormValue("scope"),
+			State:           r.FormValue("state"),
+			Challenge:       r.FormValue("challenge"),
+			ChallengeMethod: r.FormValue("challenge_mode"),
+		}
+
+		if !svcs.Authorizer().ValidateClient(cid, data.RedirectURI) {
+			log.Print("[Error] Invalid client and / or redirect URL in login call.")
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		user := r.FormValue("user")
+		pwd := r.FormValue("pwd")
+
+		uid, err := svcs.Authorizer().Authenticate(user, pwd)
+		if err != nil {
+			log.Printf("[Error] Authentication failed - %v", err)
+			redirectAuthError(w, r, data.RedirectURI, kAccessDeniedError, data.State)
+			return
+		}
+
+		data.UID = uid
+		code, err := svcs.Authorizer().GenerateAuthorizationRequest(data, config.CodeTTL)
+		if err != nil {
+			log.Printf("[Error] Failed to generate authorization code - %v", err)
+			redirectAuthError(w, r, data.RedirectURI, kServerError, data.State)
+			return
+		}
+
+		redirectAuthSuccess(w, r, data.RedirectURI, code, data.State)
+	}
+}
+
+func Token(config Config) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://www.bing.com", http.StatusFound)
+	}
+}
+
+/**
+ * OAuth2 callback redirection helpers
+ **/
+
+func redirectAuthSuccess(w http.ResponseWriter, r *http.Request, redir, code, state string) {
+	http.Redirect(w, r, fmt.Sprintf("%s?code=%s&state=%s", redir, code, state), http.StatusFound)
+}
+
+func redirectAuthError(w http.ResponseWriter, r *http.Request, redir, errS, state string) {
+	http.Redirect(w, r, fmt.Sprintf("%s?error=%s&state=%s", redir, errS, state), http.StatusFound)
 }
 
 /**
  * TODO: Remove
  * This is just for playing with the QR Code generator
  **/
+/*
 func DoThing(ttl time.Duration) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ts := r.URL.Query().Get(kQRTimestampName)
-		token := r.URL.Query().Get(kQRTokenName)
-		h := r.URL.Query().Get(kQRHashName)
+		ts := r.URL.Query().Get("ts")
+		token := r.URL.Query().Get("tk")
+		h := r.URL.Query().Get("h")
 
 		tsSecs, err := strconv.ParseInt(ts, 10, 64)
 		if err != nil {
@@ -243,7 +204,7 @@ func DoThing(ttl time.Duration) func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		key, err := svcs.Cache().Get(kQRCacheKey, token)
+		key, err := svcs.Ephemeral().KeyValues().ReadAndRemove("qrc", token)
 		if err != nil {
 			log.Printf("[Error] Failed to fetch key associated with token (%s) - %v", token, err)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -270,3 +231,4 @@ func DoThing(ttl time.Duration) func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "  => Verified? %v\n", hmac.Equal(computedH, expectedH))
 	}
 }
+*/

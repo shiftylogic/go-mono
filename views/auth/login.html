@@ -19,7 +19,12 @@
           <input class="rounded centered" type="email" id="user" name="user" placeholder="Username" required>
           <input class="rounded centered" type="password" id="pwd" name="pwd" placeholder="Password" required>
           <button class="rounded" type="submit">Sign in</button>
-          <input type="hidden" name="rid" value="{{.RequestID}}">
+          <input type="hidden" name="cid" value="{{.ClientID}}">
+          <input type="hidden" name="redir" value="{{.RedirectURI}}">
+          <input type="hidden" name="scope" value="{{.Scope}}">
+          <input type="hidden" name="state" value="{{.State}}">
+          <input type="hidden" name="challenge" value="{{.Challenge}}">
+          <input type="hidden" name="challenge_mode" value="{{.ChallengeMethod}}">
         </form>
         <div class="v-frame">
           {{if .QREnabled}}

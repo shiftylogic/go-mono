@@ -45,6 +45,13 @@ func main() {
 
 		options := selectMiddleware(config.Base)
 		options = append(options, services.WithServices(svcs))
+
+		// This needs to be the last thing added (as middleware) before we start
+		// adding other handlers
+		if config.Base.Profiler {
+			options = append(options, web.WithProfiler())
+		}
+
 		options = append(options, getRoutes(config.Services)...)
 		options = append(options, services.WithStaticRoutes(config.Base.Statics)...)
 

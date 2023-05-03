@@ -23,10 +23,18 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/url"
+	"strconv"
+	"time"
+
+	"shiftylogic.dev/site-plat/internal/helpers"
+	"shiftylogic.dev/site-plat/internal/services"
 )
 
 const (
@@ -35,13 +43,87 @@ const (
 
 	kUser = "dude@intfoo.com"
 	kPwd  = "1234test"
+
+	kAuthGenRetries    = 10
+	kAuthCodeSize      = 32
+	kAuthRequestIDSize = 20
+
+	kAuthCodeCacheNamespace = "auth_code"
+
+	// QR Code generation
+	kQRTokenSize      = 16
+	kQRSecretSize     = 32
+	kQRCacheNamespace = "qrc"
 )
 
 var (
 	kBadUserPasswordError = errors.New("invalid user or password")
 )
 
-type fixedAuthorizer struct{}
+type fixedAuthorizer struct {
+	store services.KeyValueStore
+}
+
+func (v *fixedAuthorizer) GenerateAuthorizationRequest(data services.AuthCodeData, ttl time.Duration) (string, error) {
+	var err error
+
+	for i := 0; i < kAuthGenRetries; i++ {
+		code, err := helpers.GenerateStringSecure(kAuthCodeSize, helpers.AlphaNumeric)
+		if err != nil {
+			return "", err
+		}
+
+		err = v.store.CheckAndSet(kAuthCodeCacheNamespace, code, data, ttl)
+		if err == nil {
+			return code, nil
+		}
+	}
+
+	return "", err
+}
+
+func (v *fixedAuthorizer) GenerateQRRequest(ttl time.Duration) (string, string, string, error) {
+	key, err := helpers.GenerateStringSecure(kQRSecretSize, helpers.AlphaNumeric)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	var token string
+	for i := 0; i < kAuthGenRetries; i++ {
+		token, err = helpers.GenerateStringSecure(kQRTokenSize, helpers.AlphaNumeric)
+		if err != nil {
+			return "", "", "", err
+		}
+
+		err = v.store.CheckAndSet(kQRCacheNamespace, token, key, ttl)
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return "", "", "", err
+	}
+
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+
+	hm := hmac.New(sha256.New, []byte(key))
+	hm.Write([]byte(ts))
+	hm.Write([]byte(token))
+	hash := hm.Sum(nil)
+
+	return ts, token, hex.EncodeToString(hash), nil
+}
+
+func (v *fixedAuthorizer) Authenticate(user, pwd string) (string, error) {
+	res := subtle.ConstantTimeCompare([]byte(kUser), []byte(user))
+	res += subtle.ConstantTimeCompare([]byte(kPwd), []byte(pwd))
+	if res != 2 {
+		return "", kBadUserPasswordError
+	}
+
+	return "1", nil
+}
 
 func (v *fixedAuthorizer) ValidateClient(cid, redir string) bool {
 	redir, err := url.QueryUnescape(redir)
@@ -54,15 +136,4 @@ func (v *fixedAuthorizer) ValidateClient(cid, redir string) bool {
 	res += subtle.ConstantTimeCompare([]byte(kRedirectURI), []byte(redir))
 
 	return res == 2
-}
-
-func (v *fixedAuthorizer) ValidateUser(user, pwd, scope string) (string, error) {
-	res := subtle.ConstantTimeCompare([]byte(kUser), []byte(user))
-	res += subtle.ConstantTimeCompare([]byte(kPwd), []byte(pwd))
-
-	if res != 2 {
-		return "", kBadUserPasswordError
-	}
-
-	return "1", nil
 }

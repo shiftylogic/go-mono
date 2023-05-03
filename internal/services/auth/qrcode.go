@@ -23,77 +23,31 @@
 package auth
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
-	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
-	"shiftylogic.dev/site-plat/internal/helpers"
 	"shiftylogic.dev/site-plat/internal/services"
 )
 
 const (
-	kQRCacheKey               = "qrscan"
-	kQRTokenSize              = 16
-	kQRSecretSize             = 32
+	kQRImageSize              = 512
 	kQRErrorCorrectionQuality = qrcode.Low
-
-	kQRTimestampName = "ts"
-	kQRTokenName     = "tk"
-	kQRHashName      = "h"
 )
 
 func QRGenerator(qr QRScanConfig) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ts := strconv.FormatInt(time.Now().Unix(), 10)
-
-		token, err := helpers.GenerateStringSecure(kQRTokenSize, helpers.AlphaNumeric)
-		if err != nil {
-			log.Printf("[Error] Failed to generate secure random QR token - %v", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		key, err := helpers.GenerateStringSecure(kQRSecretSize, helpers.AlphaNumeric)
-		if err != nil {
-			log.Printf("[Error] Failed to generate secure random QR secret - %v", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
 		svcs := services.ServicesFromContext(r.Context())
-		if svcs == nil {
-			log.Print("[Error] Failed to acquire active services")
+		ts, token, hash, err := svcs.Authorizer().GenerateQRRequest(qr.TTL)
+		if err != nil {
+			log.Printf("[Error] Failed to generate QR request - %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
-
-		if err := svcs.Cache().Set(kQRCacheKey, token, key, qr.TTL); err != nil {
-			log.Printf("[Error] Failed to write QR metadata to store - %v", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		hm := hmac.New(sha256.New, []byte(key))
-		hm.Write([]byte(ts))
-		hm.Write([]byte(token))
-		hash := hm.Sum(nil)
 
 		code, err := qrcode.New(
-			fmt.Sprintf(
-				"%s?%s=%s&%s=%s&%s=%x",
-				qr.Prefix,
-				kQRTimestampName,
-				ts,
-				kQRTokenName,
-				token,
-				kQRHashName,
-				hash,
-			),
+			fmt.Sprintf("%s?ts=%s&tk=%s&h=%x", qr.Prefix, ts, token, hash),
 			kQRErrorCorrectionQuality,
 		)
 		if err != nil {
@@ -102,7 +56,7 @@ func QRGenerator(qr QRScanConfig) func(http.ResponseWriter, *http.Request) {
 			return
 		}
 
-		png, err := code.PNG(512)
+		png, err := code.PNG(kQRImageSize)
 		if err != nil {
 			log.Printf("[Error] Failed to generate QR Code PNG - %v", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

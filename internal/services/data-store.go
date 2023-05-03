@@ -20,46 +20,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package services
 
-import (
-	"context"
+import "time"
 
-	"shiftylogic.dev/site-plat/internal/services"
-	"shiftylogic.dev/site-plat/internal/services/auth"
-	"shiftylogic.dev/site-plat/internal/web"
-)
+type KeyValueStore interface {
+	Read(ns, key string) (any, error)
+	ReadAndRemove(ns, key string) (any, error)
 
-func loadServices(ctx context.Context) services.Services {
-	kvs := services.NewMemoryStore(ctx)
+	CheckAndSet(ns, key string, value any, ttl time.Duration) error
+	Set(ns, key string, value any, ttl time.Duration) error
 
-	return &services.ServicesContainer{
-		EphemeralStore: &services.SimpleDataStore{
-			KVS: kvs,
-		},
-		Authy: &fixedAuthorizer{
-			store: kvs,
-		},
-	}
+	Refresh(ns, key string, ttl time.Duration) error
+	Remove(ns, key string)
 }
 
-func selectMiddleware(config services.Config) []web.RouterOptionFunc {
-	options := []web.RouterOptionFunc{
-		web.WithLogging(),
-		web.WithPanicRecovery(),
-		web.WithNoIFrame(),
-		web.WithNoCache(), // TODO: Remove this at some point later
-	}
-
-	if config.CORS.Enabled() {
-		options = append(options, web.WithCors(config.CORS.Options()))
-	}
-
-	return options
+type DataStore interface {
+	KeyValues() KeyValueStore
 }
 
-func getRoutes(config ServicesConfig) []web.RouterOptionFunc {
-	return []web.RouterOptionFunc{
-		auth.WithOAuth2(config.Auth),
-	}
+type SimpleDataStore struct {
+	KVS KeyValueStore
+}
+
+func (ds *SimpleDataStore) KeyValues() KeyValueStore {
+	return ds.KVS
 }

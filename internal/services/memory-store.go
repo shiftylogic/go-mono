@@ -44,6 +44,7 @@ var (
 	kErrorInvalidKey        = errors.New("invalid key")
 	kErrorExpiredItem       = errors.New("expired item")
 	kErrorItemAlreadyExists = errors.New("item already exists")
+	kErrorItemChanged       = errors.New("item changed during refresh")
 )
 
 type memoryItem struct {
@@ -55,7 +56,7 @@ type memStore struct {
 	scopes sync.Map
 }
 
-func NewMemoryStore(ctx context.Context) KVStore {
+func NewMemoryStore(ctx context.Context) KeyValueStore {
 	store := &memStore{}
 	ticker := time.NewTicker(kCollectionPeriod)
 
@@ -89,27 +90,7 @@ func (s *memStore) collect() {
 	})
 }
 
-func (store *memStore) CheckAndSet(ns, key string, value any, ttl time.Duration) error {
-	scoped, _ := store.scopes.LoadOrStore(ns, &sync.Map{})
-	_, loaded := scoped.(*sync.Map).LoadOrStore(key, memoryItem{
-		purge: time.Now().Add(ttl),
-		value: value,
-	})
-
-	if loaded {
-		return kErrorItemAlreadyExists
-	}
-
-	return nil
-}
-
-func (store *memStore) Remove(ns, key string) {
-	if scoped, ok := store.scopes.Load(ns); ok {
-		scoped.(*sync.Map).Delete(key)
-	}
-}
-
-func (store *memStore) Get(ns, key string) (any, error) {
+func (store *memStore) Read(ns, key string) (any, error) {
 	scoped, ok := store.scopes.Load(ns)
 	if !ok {
 		return nil, kErrorInvalidNamespace
@@ -127,6 +108,56 @@ func (store *memStore) Get(ns, key string) (any, error) {
 	return item.(memoryItem).value, nil
 }
 
+func (store *memStore) ReadAndRemove(ns, key string) (any, error) {
+	scoped, ok := store.scopes.Load(ns)
+	if !ok {
+		return nil, kErrorInvalidNamespace
+	}
+
+	item, ok := scoped.(*sync.Map).LoadAndDelete(key)
+	if !ok {
+		return nil, kErrorInvalidKey
+	}
+
+	if item.(memoryItem).purge.Before(time.Now()) {
+		return nil, kErrorExpiredItem
+	}
+
+	return item.(memoryItem).value, nil
+}
+
+func (store *memStore) CheckAndSet(ns, key string, value any, ttl time.Duration) error {
+	scoped, ok := store.scopes.Load(ns)
+	if !ok {
+		scoped, _ = store.scopes.LoadOrStore(ns, new(sync.Map))
+	}
+
+	_, loaded := scoped.(*sync.Map).LoadOrStore(key, memoryItem{
+		purge: time.Now().Add(ttl),
+		value: value,
+	})
+
+	if loaded {
+		return kErrorItemAlreadyExists
+	}
+
+	return nil
+}
+
+func (store *memStore) Set(ns, key string, value any, ttl time.Duration) error {
+	scoped, ok := store.scopes.Load(ns)
+	if !ok {
+		scoped, _ = store.scopes.LoadOrStore(ns, new(sync.Map))
+	}
+
+	scoped.(*sync.Map).Store(key, memoryItem{
+		purge: time.Now().Add(ttl),
+		value: value,
+	})
+
+	return nil
+}
+
 func (store *memStore) Refresh(ns, key string, ttl time.Duration) error {
 	scoped, ok := store.scopes.Load(ns)
 	if !ok {
@@ -138,21 +169,20 @@ func (store *memStore) Refresh(ns, key string, ttl time.Duration) error {
 		return kErrorInvalidKey
 	}
 
-	scoped.(*sync.Map).Store(key, memoryItem{
+	newItem := memoryItem{
 		purge: time.Now().Add(ttl),
 		value: item.(memoryItem).value,
-	})
+	}
+
+	if !scoped.(*sync.Map).CompareAndSwap(key, item, newItem) {
+		return kErrorItemChanged
+	}
 
 	return nil
 }
 
-func (store *memStore) Set(ns, key string, value any, ttl time.Duration) error {
-	scoped, _ := store.scopes.LoadOrStore(ns, new(sync.Map))
-
-	scoped.(*sync.Map).Store(key, memoryItem{
-		purge: time.Now().Add(ttl),
-		value: value,
-	})
-
-	return nil
+func (store *memStore) Remove(ns, key string) {
+	if scoped, ok := store.scopes.Load(ns); ok {
+		scoped.(*sync.Map).Delete(key)
+	}
 }
